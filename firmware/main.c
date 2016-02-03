@@ -24,6 +24,7 @@
 #include "clock.h"
 #include "tpi.h"
 #include "tpi_defs.h"
+#include "uart.h"
 
 static uchar replyBuffer[8];
 
@@ -36,10 +37,13 @@ static unsigned int prog_nbytes = 0;
 static unsigned int prog_pagesize;
 static uchar prog_blockflags;
 static uchar prog_pagecounter;
+static uchar debug_byte='X';
+static unsigned long baud= BAUD_RATE;
+
 
 uchar usbFunctionSetup(uchar data[8]) {
 
-	uchar len = 0;
+	uchar len = 0, i;
 
 	if (data[1] == USBASP_FUNC_CONNECT) {
 
@@ -190,8 +194,50 @@ uchar usbFunctionSetup(uchar data[8]) {
 		replyBuffer[2] = 0;
 		replyBuffer[3] = 0;
 		len = 4;
+	// ****** EMK Modifications for DEBUG serial interface ******			
+	} else if (data[1] == USBASP_FUNC_UART_GETBYTE ) {
+	  // **** Get a byte From UART outBuf (if any) send to HOST ***
+    if(UART_outbufsize()>0)
+       {
+        replyBuffer[0] = UART_outBuf_get();  //Get a byte from the outBuf buffer
+       }
+    else    
+       replyBuffer[0]=0;     //Nothing to send, send NULL byte
+       
+		len = 1;
+	
+	} else if (data[1] == USBASP_FUNC_UART_PUTBYTE ) {
+	  // **** Get Data From HOST to be sent to UART ***
+		debug_byte= data[2];         //Save byte to debug_byte
+		PORTC &=0xFC;                //Clear Low 2 bits  
+		PORTC |= ~debug_byte & 0x03; //Show Low 2 bits in LEDs 
+		UART_inBuf_put(debug_byte);  //Save in inBuf for sending to UART
+		
+	} else if (data[1] == USBASP_FUNC_UART_GETBYTECOUNT ) {
+    // **** Get #of bytes from UART waiting to be sent to HOST ***	
+    replyBuffer[0] = UART_outbufsize();  //Get #of bytes in outBuf buffer
+		len = 1;
+		
+  } else if (data[1] == USBASP_FUNC_UART_SETBAUDRATE) {
+	  // Set UART Baud Rate (53)
+	  baud = *((unsigned long*) &data[2]);
+	  UART_init(baud);
+    replyBuffer[0] = 0x53;  //Return Code = Command in Hex
+		len = 1;
+	} else if (data[1] == USBASP_FUNC_TEST_CMD1) {
+	  //Just For Demonstration...
+	  PORTC |= 0x03;        //Both LEDs OFF
+	  for(i=0; i<10; i++)   //Make the LEDs blink for  816ms
+	     {
+	      clockWait(255);   //320us * 255 = 81.6ms
+        PORTC++;
+       }
+    PORTC=0xFC;                   //Restore the state of the LEDs
+    replyBuffer[0] = debug_byte;  //Just return last byte sent from Host
+		len = 1;
+		
 	}
-
+  // **** [END] EMK Modifications for DEBUG serial interface ******
 	usbMsgPtr = replyBuffer;
 
 	return len;
@@ -326,6 +372,9 @@ int main(void) {
 	DDRC = 0x03;
 	PORTC = 0xfe;
 
+  /* init UART */
+  UART_init(baud);
+   
 	/* init timer */
 	clockInit();
 
@@ -334,6 +383,8 @@ int main(void) {
 	sei();
 	for (;;) {
 		usbPoll();
+		
+		UART_poll();
 	}
 	return 0;
 }

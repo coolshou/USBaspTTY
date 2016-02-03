@@ -1,4 +1,9 @@
 #!/bin/bash
-[ -f $1.bak ] && rm -f $1.bak
-mv $1 $1.bak
-sed 's///g' $1.bak >$1
+for f in $1
+do
+echo $f
+[ -f $f.bak ] && rm -f $f.bak
+mv $f $f.bak
+sed 's///g' $f.bak >$f
+rm -f $f.bak
+done
